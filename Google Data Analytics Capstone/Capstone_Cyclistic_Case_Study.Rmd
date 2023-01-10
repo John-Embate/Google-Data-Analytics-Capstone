@@ -1,0 +1,424 @@
+---
+title: "Cyclistic Capstone Case Study"
+author: "John Embate"
+date: "2023-01-06"
+output: html_notebook
+---
+
+## Introduction
+This case study is part of the Google Data Analytics Professional Certificate requirements. It is based on the fictional company **"Cyclistic"**, which provides bike-sharing services throughout Chicago. The company now has a fleet of _5,824 geotracked bicycles_ linked to a network of _692 stations_.
+
+According to the company's finance analysts, annual members are more profitable than casual riders. As a result, the marketing team at the company must devise a marketing strategy to convert casual riders into annual members. By analyzing and identifying trends in the company's historical bike trip data, this case study aims to explore/understand how these different types of customers differ from one another, as well as to ask other questions that may provide an idea for the overall marketing strategy to be implemented.
+
+## Ask
+This analysis focuses on these 3 main guide questions:
+
+1. _How do annual members and casual riders use Cyclistic bikes differently?_
+2. _Why would casual riders buy Cyclistic annual memberships?_
+3. _How can Cyclistic use digital media to influence casual riders to become members?_
+
+Main Business Task: **How to convert casual riders to annual members?**
+
+## Prepare
+
+First, let's load the necessary packages in order to import the dataset we'll be working with.
+
+```{r, results='hide'}
+library(tidyverse)
+```
+
+In this analysis, we will look at the last _12 months_ of Cyclistic trip data. The dataset is comprised of dataset from January to December of 2022. The data can be accessed from this [link](https://divvy-tripdata.s3.amazonaws.com/index.html).
+
+```{r}
+jan_2022 <- read.csv("datasets/202201-divvy-tripdata.csv")
+feb_2022 <- read.csv("datasets/202202-divvy-tripdata.csv")
+mar_2022 <- read.csv("datasets/202203-divvy-tripdata.csv")
+apr_2022 <- read.csv("datasets/202204-divvy-tripdata.csv")
+may_2022 <- read.csv("datasets/202205-divvy-tripdata.csv")
+jun_2022 <- read.csv("datasets/202206-divvy-tripdata.csv")
+jul_2022 <- read.csv("datasets/202207-divvy-tripdata.csv")
+aug_2022 <- read.csv("datasets/202208-divvy-tripdata.csv")
+sep_2022 <- read.csv("datasets/202209-divvy-tripdata.csv")
+oct_2022 <- read.csv("datasets/202210-divvy-tripdata.csv")
+nov_2022 <- read.csv("datasets/202211-divvy-tripdata.csv")
+dec_2022 <- read.csv("datasets/202212-divvy-tripdata.csv")
+```
+
+The datasets used in this analysis are downloaded from the link provided above and unzipped in a folder named *"datasets"*. For ease of use, the folder and this Rmd file are both located in the same directory. We renamed the September dataset file to ensure consistency across all files. All changes made to this analysis are made in R in order to properly document the overall process. We did not use Excel or other tools for analysis because the dataset was too large to load, filter, or sort.
+
+## Process
+
+In the following steps, we'll load any additional packages required for cleaning as well as visualizations.
+```{r, results='hide'}
+library(lubridate)
+library(dplyr)
+library(pryr)
+library(skimr)
+library(ggplot2)
+library(leaflet)
+```
+
+Let's examine the structure of a few of the dataframes we've loaded.
+```{r}
+# January 2022 dataframe structure:
+str(jan_2022)
+# December 2022 dataframe structure:
+str(dec_2022)
+```
+
+The dataframes appear to have the same structure, but the datetime columns are incorrectly parsed as strings. We can correct the datatypes by using one of the lubridate package's functions. But first, we need to ensure that the column names and data types are consistent/identical across all dataframes. Let's start by comparing the column names of all the dataframes. We will then inspect the inconsistent dataframes, but if they are all consistent, we will proceed to checking the data types, then to our cleaning process, and finally to checking for Nan Values.
+```{r}
+# Let's create a list for our dataframes first, excluding jan_2022 df. We will use it to check against each of the dataframe elements in the list.
+df_list <- list(feb_2022, mar_2022, apr_2022, may_2022, jun_2022, jul_2022, aug_2022, sep_2022, oct_2022, nov_2022, dec_2022)
+names(df_list) <- month.name[2:12]
+
+print("Do the ff. dataframes have the same column names with jan_2022 dataframe?:")
+for(index in 1:length(df_list)){
+  col_equivalence <- colnames(jan_2022) == colnames(df_list[[index]]) #return bool vector if columns are equal
+  status <- ifelse(all(col_equivalence), "Yes", "No") #return "Yes" if all column names are equal, else 
+  month_name <- names(df_list[index])
+  print(sprintf("%s: %s", month_name, status))
+}
+```
+
+The column names are consistent across all dataframes. Let's look at the dataframes' data types now.
+```{r}
+print("Do the ff. dataframes have the same data types with jan_2022 dataframe?:")
+for(index in 1:length(df_list)){
+  col_equivalence <- sapply(jan_2022, class) == sapply(df_list[[index]], class) #return bool vector if columns are equal
+  status <- ifelse(all(col_equivalence), "Yes", "No") #return "Yes" if all column names are equal, else 
+  month_name <- names(df_list[index])
+  print(sprintf("%s: %s", month_name, status))
+}
+```
+
+Let's now convert the datetime columns to their proper data types.
+```{r}
+# first let's append the jan_2022 to the df_list
+df_list <- append(df_list, list(jan_2022), after=0)
+# Then let's add the name of the jan_2022
+names(df_list)[1] <- month.name[1]
+```
+
+```{r}
+for(index in 1:length(df_list)){
+  date_col <- c("started_at", "ended_at")
+  df_list[[index]][date_col] <- lapply(df_list[[index]][date_col], as.POSIXct, format="%Y-%m-%d %H:%M:%S")
+}
+
+#Let's check the dtypes of jan_2022 dataframe
+glimpse(df_list[[1]])
+```
+
+Let's bind all of the dataframes together so that we can efficiently check any Nan values, sort, filter, query, and organize the dataset.
+```{r}
+df_all <- bind_rows(df_list)
+```
+
+Let's skim and get some summary of the overall dataframe.
+```{r}
+skim_without_charts(df_all)
+```
+
+According to the output, the following columns have empty/missing values: start_station_name, start_station_id, end_station_id, end_station_name, end_lat, and end_lng. We can drop the rows that contain these empty/missing values, but we may lose some important information if we analyze other columns that do not contain empty/missing values; thus, we can leave it as is and filter/drop only the empty/missing values during the analyze phase where an analysis involving these columns is to be performed.
+
+We could also transmute some values on the empty/missing values by creating a dictionary to map the station id and station names to their corresponding latitude and longitude values using a pivot table or groupby function, but this would be a risky and complex thing to do, especially if there are misrepresentations generated during mapping of the values, which could affect the accuracy of the analysis that involves the said columns. For the time being, let's check for and remove any duplicate rows in our dataframe.
+```{r}
+# Let's check the dimension of the dataframe first.
+print(dim(df_all))
+# Let's get the total duplicated rows in the dataframe.
+print(paste0("Total duplicates: ", sum(duplicated(df_all$ride_id))))
+```
+
+Now let's select the columns that are only needed for our analyze phase
+```{r}
+columns_to_drop <- c("ride_id", "start_station_id", "end_station_id")
+df_all <- df_all %>% select(-any_of(columns_to_drop))
+```
+
+Let's create a new column which computes for trip duration for each rides in seconds
+```{r}
+df_all <- df_all %>% mutate(trip_duration = difftime(df_all$ended_at, df_all$started_at, units = c("secs")))
+print(head(df_all))
+```
+
+It appears that negative durations have been computed. Let's see how many rows have negative values; if they make up a small portion of the dataset, we can remove them.
+```{r}
+tot_negative_dur <- df_all %>% filter(trip_duration < 0 ) %>% nrow()
+print(paste0("Total rows with negative durations: ", tot_negative_dur))
+```
+```{r}
+# Let's remove the rows by using subset function to only select the rows where trip_duration is not negative
+df_all <- subset(df_all, !(trip_duration < 0))
+```
+
+Now let's extract the day_of_week and month of our dataset.
+```{r}
+df_all$day_of_week <- wday(df_all$started_at, label = TRUE, abbr = FALSE)
+df_all$month <- format(df_all$started_at, "%B")
+#Let us convert the month column to an ordered data type
+df_all$month <- ordered(df_all$month, levels = month.name)
+```
+
+We will be asking questions and visualizing data that involves the stations in the dataframe in the following process, so we must create a mapping dataframe that contains the station names and their corresponding geographical information (latitude and longitude).
+```{r}
+#We must note that there are 2 columns of station in the dataframe. To efficiently create the mapping dataframe we will first focus on creating a start_station_df where we group and filter the start_station_name column then, we will proceed on the end station but filtering out the station names that are already present on the start_station_df to avoid redundancy/duplication.
+
+start_station_names_lat_long <- df_all[,c("start_station_name", "start_lat", "start_lng")]
+start_station_names_lat_long <- start_station_names_lat_long %>% 
+  group_by(start_station_name, start_lat, start_lng) %>% #group by station_names, lat, and lng to summarize total counts
+  summarize(tot_count = n()) %>% #get total counts
+  group_by(start_station_name) %>% #group again to filter and get the lat and lng that has max count
+  filter(tot_count == max(tot_count)) %>% # filter to get the max count from each of the groups
+  distinct(start_station_name, .keep_all = TRUE) # keep the first row in case of ties
+```
+
+```{r}
+#Now let's go to end station
+end_station_names_lat_long <- df_all[,c("end_station_name", "end_lat", "end_lng")]
+end_station_names_lat_long <- end_station_names_lat_long[!end_station_names_lat_long$end_station_name %in% start_station_names_lat_long$start_station_name,] #get only end_station_name not in start_station_name
+
+#Let's print how many unique/distinct end_station_names left
+print(paste0("Total unique stations left: ",length(unique(end_station_names_lat_long$end_station_name))))
+```
+Now, we will also group, summarize, and filter our end_station_names_lat_long dataframe, the same as what we did with the start_station_names_lat_long dataframe.
+
+```{r}
+end_station_names_lat_long <- end_station_names_lat_long %>% 
+  group_by(end_station_name, end_lat, end_lng) %>% #group by station_names, lat, and lng to summarize total counts
+  summarize(tot_count = n()) %>% #get total counts
+  group_by(end_station_name) %>% #group again to filter and get the lat and lng that has max count
+  filter(tot_count == max(tot_count)) %>% # filter to get the max count from each of the groups
+  distinct(end_station_name, .keep_all = TRUE) # keep the first row in case of ties
+```
+Let's now make our mapping dataframe, which will contain all of the end station and start station dataframes. However, before binding, we must rename their columns to the same column names.
+
+```{r}
+start_station_names_lat_long <- rename(start_station_names_lat_long, station_name = start_station_name, lat = start_lat, long = start_lng)
+end_station_names_lat_long <- rename(end_station_names_lat_long, station_name = end_station_name, lat = end_lat, long = end_lng)
+```
+
+```{r}
+station_names_geo_map <- bind_rows(start_station_names_lat_long, end_station_names_lat_long)
+cat("Station Names Geo Mapping Dataframe Dimension:\n", 
+             "Total Rows: ", nrow(station_names_geo_map),
+             "\nTotal Columns: ", ncol(station_names_geo_map), sep="")
+
+#Since we will only need the corresponding geographical information of a station name, we can remove the tot_count column now and remove the instance in our dataframe where station_name is empty.
+station_names_geo_map <- select(station_names_geo_map, -tot_count) %>% filter(station_name != "")
+print(head(station_names_geo_map, n = 10L))
+```
+We can use this dataframe for future purposes. Especially during the data visualization stage. Now let's proceed with the analyze phase.
+
+## Analyze
+During this phase, we will attempt to ask a few important questions in order to gain some insights from our cleaned dataframe. We will then visualize the results to better understand the relationships, trends, and differences revealed by our analysis.
+
+1. What day of the week do most of the customers (both Annual and Casual) use the services of Cyclistic based on _total trips_?
+
+```{r}
+query1_df <- df_all %>% 
+  group_by(member_casual,day_of_week) %>% 
+  summarize(total_trips = n()) %>%
+  arrange(desc(total_trips))
+print(query1_df)
+```
+Annual members take more trips than casual riders, and the top three days of the week for total trips are Thursday, Wednesday, and Tuesday. Meanwhile, the top three days of the week for total trips taken by casual riders are Saturday, Sunday, and Friday. We could use the designated days to launch digital media advertisements.
+
+But, before we make it a final recommendation, let us see if this holds true if we create an average count by month in the dataset.
+
+2. What day of the week do most of the customers (both Annual and Casual) use the services of Cyclistic based on _monthly average total trips_?
+```{r}
+query2_df <- df_all %>% 
+  group_by(member_casual,day_of_week, month) %>% 
+  summarize(total_trips = n()) %>%
+  group_by(member_casual, day_of_week) %>%
+  summarize(monthly_average_total_trips = mean(total_trips)) %>%
+  arrange(desc(monthly_average_total_trips))
+print(query2_df)
+```
+
+When we focus on monthly average total trips, the results show that our assumption from the first query is consistent. This indicates that this trend is more likely to occur throughout the year and less likely not to occur in any of the months.
+
+Let's look at the duration of their trips to better understand the differences between annual members and casual riders.
+
+3. What is the weekly trip duration average taken by membership type and day of week?
+```{r}
+query3_df <- df_all %>% 
+     group_by(member_casual,day_of_week) %>% 
+     summarize(day_of_week_trip_duration_average = mean(trip_duration)) %>%
+     arrange(desc(day_of_week_trip_duration_average))
+print(query3_df)
+```
+We can see that casual riders take longer average trips than annual members. We can use this knowledge to develop discounted offers or promotions as part of an annual membership to entice casual riders to upgrade to membership status.
+
+4. What is the average duration trip based only on membership type and month?
+
+```{r}
+query4_df <- df_all %>% 
+  group_by(member_casual, month) %>% 
+  summarize(monthly_trip_duration_average = mean(trip_duration))
+
+# View in Wide format for better view
+print(spread(query4_df, month, monthly_trip_duration_average))
+```
+
+5. What type of bicycle that is mostly used by casual riders and annual members by each month?
+```{r}
+query5_df <- df_all %>% 
+  group_by(member_casual, month, rideable_type) %>% 
+  summarize(total_trips = n())
+
+# View in Wide format for better view
+print(spread(query5_df, month, total_trips))
+```
+It appears that most casual riders prefer to ride an electric bike. This could be due to the fact that they take longer trips than annual members. Meanwhile, annual members typically prefer the classic bike over the electric bike in the early months of the year. This could be due to the short duration of their trips. This scenario, however, gradually reverses by the middle of the year.
+
+On this part of our analysis, let's concentrate on the marketing strategy. Let us try to identify the most frequently visited stations by customers.
+
+6. What's the mostly accessed stations by the customers?
+```{r}
+#There are two types of stations existing in the dataframe which are the start and end stations. We need to bind/append this station into one dataframe to execute our query. Note we must not include the station names which are empty strings "".
+start_station_df <- df_all[df_all$start_station_name != "", c("member_casual", "start_station_name")]
+end_station_df <- df_all[df_all$end_station_name != "", c("member_casual", "end_station_name")]
+
+#Let's rename the station_name column to the same column name before binding rows
+start_station_df <- start_station_df %>% rename(station_name = start_station_name)
+end_station_df <- end_station_df %>% rename(station_name = end_station_name)
+station_df <- bind_rows(start_station_df, end_station_df)
+
+#Now let's answer our query
+query6_df <- station_df %>% 
+  group_by(member_casual, station_name) %>% 
+  summarize(total_trips = n()) %>%
+  arrange(desc(total_trips))
+print(query6_df)
+```
+
+The top five most visited stations in the results are by casual riders. We can use this information to target these areas with advertising. We can place printed advertisements on these stations or create social media advertisements aimed at people who work or live in these areas. We could also create discounted offers for customers who frequently travel on these stations and have an annual membership subscription with the company. This would help persuade casual riders to apply for annual membership, especially if they take frequent and longer trips on these stations (in and out).
+
+Now that we've answered a few questions in order to gather some ideas and identify trends and patterns. Let's try to visualize our findings to gain a deeper understanding and possibly discover other existing patterns that are difficult to capture in tables.
+
+## Share
+In this phase, we will visualize the results of our query to see if there are any other existing trends or patterns.
+
+
+1. Query1 Dataframe Visualization:
+```{r}
+ggplot(query1_df, aes(x = day_of_week, y = total_trips, fill = member_casual)) +
+  geom_bar(width=0.5, stat = "identity", position = "dodge") +
+  labs(title="Casual Riders vs. Annual Members Total Trips",
+       subtitle = "Based on Day of Week",
+       caption = "Data collected from January 2022 to December 2022",
+       x = "Day of Week",
+       y = "Total Trips",
+       fill = "Membership Type")
+```
+
+The visualization shows that the total number of trips taken by annual members peaks around **Tuesday**, **Wednesday**, and **Thursday**. On those days, however, it is the inverse for casual riders.
+
+2. Query2 Dataframe Visualization:
+```{r}
+ggplot(query2_df, aes(x = day_of_week, y = monthly_average_total_trips, fill = member_casual)) +
+  geom_bar(width=0.5, stat = "identity", position = "dodge") +
+  labs(title="Casual Riders vs. Annual Members Monthly Average Total Trips",
+       subtitle = "Based on Day of Week",
+       caption = "Data collected from January 2022 to December 2022",
+       x = "Day of Week",
+       y = "Monthly Average Total Trips",
+       fill = "Membership Type")
+```
+The trends and patterns in the resulting bar plot are nearly identical to those in the previous plot. This indicates that the trend is likely to continue throughout the year.
+
+3. Query3 Dataframe Visualization:
+```{r}
+ggplot(query3_df, aes(x = day_of_week, y = day_of_week_trip_duration_average, fill = member_casual)) +
+  geom_bar(width=0.5, stat = "identity", position = "dodge") +
+  labs(title="Casual Riders vs. Annual Members Trip Duration Average (secs)",
+       subtitle = "Based on Day of Week",
+       caption = "Data collected from January 2022 to December 2022",
+       x = "Day of Week",
+       y = "Trip Duration Average",
+       fill = "Membership Type")
+```
+
+The results show that, while casual riders take fewer trips than annual members, they do have longer average trip durations.
+
+4. Query4 Dataframe Visualization
+```{r}
+ggplot(query4_df, aes(x=month,
+                y=as.numeric(monthly_trip_duration_average),
+                group=member_casual, color=member_casual)) +
+  geom_line(size=1)+
+  geom_point(size=2) +
+    labs(title="Casual Riders vs. Annual Members Trip Duration Average (secs)",
+       subtitle = "Based on Month",
+       caption = "Data collected from January 2022 to December 2022",
+       x = "Month",
+       y = "Trip Duration Average",
+       fill = "Membership Type") +
+  theme(axis.text.x = element_text(vjust=0.7, angle=45))
+
+```
+
+The outcome complements the previous visualization's insight. The casual riders do take longer trips, which peak in **March**.
+
+5. Query5 Dataframe Visualization
+```{r}
+ggplot(query5_df, aes(x = month, y = total_trips, fill = rideable_type)) +
+  geom_bar(width=0.5, stat = "identity", position = "dodge") +
+  facet_wrap(~member_casual) +
+  theme(axis.text.x = element_text(vjust=0.7, hjust=0.7, angle=45)) +
+  labs(title="Casual Riders vs. Annual Members Mostly Used Type of Bicycle",
+       subtitle = "Based on Month",
+       caption = "Data collected from January 2022 to December 2022",
+       x = "Month",
+       y = "Total Trips",
+       fill = "Bicycle Type")
+```
+The results show that casual riders used electric bikes more frequently, with the month of July being the most popular. We could begin offering annual membership discounts for electric bikes that month in order to entice casual riders to sign up for annual memberships because demand is high that month and in the months following.
+
+6.1. Query6 Dataframe Visualization
+```{r}
+#Since we want to focus on how to efficiently target our ads to casual riders let's filter our query6 dataframe for casual riders and their top 5 mostly accessed stations.
+query6_filtered_df <- query6_df %>% 
+  filter(member_casual == "casual") %>% 
+  arrange(desc(total_trips)) %>%
+  slice(1:5)
+
+ggplot(query6_filtered_df, aes(x = total_trips, y = station_name)) +
+  geom_bar(width=0.5, fill="blue", stat="identity") +
+  labs(title="Casual Riders: Top 5 Stations Accessed",
+       caption = "Data collected from January 2022 to December 2022",
+       x = "Total Trips (start & end)",
+       y = "Station Name")
+```
+
+Let's try to map this out to see how far/close these stations are. In the _Process_ phase, we will use the station_names_geo dataframe that we created earlier.
+
+6.2. Query6 Dataframe Visualization
+```{r}
+#Since we want to focus on how to efficiently target our ads to casual riders let's filter our query6 dataframe for casual riders and their top 10 mostly accessed stations.
+query6_geomap_df <- merge(query6_filtered_df, station_names_geo_map, by="station_name")
+
+# Create a map centered on Chicago with zoom level 12
+station_map_plot <- leaflet() %>% addTiles() %>% setView(lng = -87.6147, lat = 41.8969, zoom = 12)
+# Add markers for each point in 
+station_map_plot %>% addMarkers(data = query6_geomap_df, ~long, ~lat, popup = query6_geomap_df$station_name)
+```
+
+These stations appear to be close to one another. Creating discounted offers or promotions for newly subscribed annual members who access these stations (start and end) could help entice casual riders to join.
+
+## Act
+Here are our main take aways from our overall analysis:
+
+1. _Annual members make a lot of trips on **Tuesdays**, **Wednesdays**, and **Thursdays**. Meanwhile, casual riders make a lot of trips on **Saturdays** and **Sundays**._
+2. _When compared to annual members, casual riders have longer trip durations._
+3. _The average trip duration of casual riders peaks in March._
+4. _Among all types of bicycles, casual riders prefer electric bikes. They use electric bikes the most during the month of July._
+5. _The Top 5 most accessed stations come from casual riders. These stations are also close to each other and near the bay._
+
+Recommendations based on the analysis:
+
+1. _Offer promotions or discounts to new annual members for 2-3 months during the month of July. Different promotions for electric bike users and those who access the Top 5 stations._
+2. _Create printed ads/promotions for these promotions or discounts in the Top 5 stations.    _
+3. _Create social media advertisements about the discount/promo offering that target people who work or live near the most frequently accessed stations._
